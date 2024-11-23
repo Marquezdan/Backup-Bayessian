@@ -6,20 +6,22 @@ import seaborn as sns
 from torch.utils.data import DataLoader, TensorDataset
 
 # Função para plotar os resultados de regressão
-def plot_regression(X_train, y_train, X_test, f_mu, pred_std, file_name="cubic_example_plot", plot=True):
+def plot_regression(X_train, y_train, X_test, f_mu, pred_std, prior_value, sigma_value, file_name="cubic_example_plot", plot=True):
     plt.figure(figsize=(10, 6))
     plt.scatter(X_train.cpu().numpy(), y_train.cpu().numpy(), color='blue', label='Dados de Treinamento')
     plt.plot(X_test, f_mu, color='red', label='Média das Predições')
     plt.fill_between(X_test, f_mu - 2*pred_std, f_mu + 2*pred_std, color='orange', alpha=0.3, label='Intervalo de Confiança (2σ)')
-    plt.title(file_name)
+    plt.title(file_name)  # Usa o valor de file_name como título
     plt.xlabel('X')
     plt.ylabel('y')
     plt.legend()
+    
     if plot:
         plt.show()
     else:
         plt.savefig(f"{file_name}.png")
         plt.close()
+
 
 # Configurações e criação dos dados
 n_epochs = 1000
@@ -56,7 +58,7 @@ for epoch in range(n_epochs):
         optimizer.step()
 
 # Inicialização da aproximação de Laplace
-la = Laplace(model, "regression", subset_of_weights="last_layer", hessian_structure="full")
+la = Laplace(model, "regression", subset_of_weights="last_layer", hessian_structure="diag")
 la.fit(train_loader)
 
 # Função para obter camadas com parâmetros (pesos e vieses separados)
@@ -148,7 +150,19 @@ def perform_predictions_and_plot(la, X_test, prior_structure, save=True):
     f_mu = f_mu.squeeze().detach().cpu().numpy()
     f_sigma = f_var.squeeze().sqrt().cpu().numpy()
     pred_std = np.sqrt(f_sigma**2 + la.sigma_noise.item()**2)
-    file_name = f"cubic, W=LL, H=Full, P={prior_structure}"
+    file_name = f"cubic, W=last_layer, H=diag Prior={prior_structure}"
+
+    # Calcular prior_value e sigma_value
+    if prior_structure == "scalar":
+        prior_value = la.prior_precision_diag.mean().item()
+    elif prior_structure == "layerwise":
+        prior_value = la.prior_precision_diag.mean().item()
+    else:
+        prior_value = None
+
+    sigma_value = la.sigma_noise.item()
+
+    # Chamar a função de plotagem
     plot_regression(
         X_train,
         y_train,
@@ -156,8 +170,11 @@ def perform_predictions_and_plot(la, X_test, prior_structure, save=True):
         f_mu,
         pred_std,
         file_name=file_name,
-        plot=not save
+        plot=not save,
+        prior_value=prior_value,
+        sigma_value=sigma_value
     )
+
     if save:
         print(f"Plot salvo como '{file_name}.png'.")
 

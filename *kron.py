@@ -11,10 +11,11 @@ def plot_regression(X_train, y_train, X_test, f_mu, pred_std, file_name="cubic_e
     plt.scatter(X_train.cpu().numpy(), y_train.cpu().numpy(), color='blue', label='Dados de Treinamento')
     plt.plot(X_test, f_mu, color='red', label='Média das Predições')
     plt.fill_between(X_test, f_mu - 2*pred_std, f_mu + 2*pred_std, color='orange', alpha=0.3, label='Intervalo de Confiança (2σ)')
-    plt.title('Regressão Cúbica com Aproximação de Laplace')
+    plt.title(file_name)
     plt.xlabel('X')
     plt.ylabel('y')
     plt.legend()
+    
     if plot:
         plt.show()
     else:

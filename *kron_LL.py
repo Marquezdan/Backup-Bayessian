@@ -15,6 +15,7 @@ def plot_regression(X_train, y_train, X_test, f_mu, pred_std, file_name="cubic_e
     plt.xlabel('X')
     plt.ylabel('y')
     plt.legend()
+    
     if plot:
         plt.show()
     else:
@@ -56,7 +57,7 @@ for epoch in range(n_epochs):
         optimizer.step()
 
 # Inicialização da aproximação de Laplace
-la = Laplace(model, "regression", subset_of_weights="last_layer", hessian_structure="full")
+la = Laplace(model, "regression", subset_of_weights="last_layer", hessian_structure="kron")
 la.fit(train_loader)
 
 # Função para obter camadas com parâmetros (pesos e vieses separados)
@@ -148,7 +149,7 @@ def perform_predictions_and_plot(la, X_test, prior_structure, save=True):
     f_mu = f_mu.squeeze().detach().cpu().numpy()
     f_sigma = f_var.squeeze().sqrt().cpu().numpy()
     pred_std = np.sqrt(f_sigma**2 + la.sigma_noise.item()**2)
-    file_name = f"cubic, W=LL, H=Full, P={prior_structure}"
+    file_name = f"cubic, W=LL, H=kron, P={prior_structure}"
     plot_regression(
         X_train,
         y_train,
@@ -162,6 +163,7 @@ def perform_predictions_and_plot(la, X_test, prior_structure, save=True):
         print(f"Plot salvo como '{file_name}.png'.")
 
 # Função para otimizar sigma_noise
+# Função para otimizar sigma_noise
 def optimize_sigma_noise(la, prior_structure):
     log_sigma = torch.ones(1, requires_grad=True, device=la._device)
     sigma_optimizer = torch.optim.Adam([log_sigma], lr=1e-1)
@@ -169,15 +171,37 @@ def optimize_sigma_noise(la, prior_structure):
 
     for epoch in range(sigma_n_epochs):
         sigma_optimizer.zero_grad()
-        neg_marglik = - la.log_marginal_likelihood(la.prior_precision_diag, log_sigma.exp())
+
+        # Ajuste para prior_precision compatível com 'kron'
+        if prior_structure == "scalar":
+            # Um único valor de prior_precision (já funciona corretamente)
+            prior_precision = la.prior_precision_diag.mean()  
+        elif prior_structure == "layerwise":
+            # Calcular prior_precision por camada
+            prior_precision = []
+            start = 0
+            for layer in parameter_layers:
+                n_params_layer = layer.numel()
+                # Média dos valores correspondentes em prior_precision_diag
+                prior_precision.append(la.prior_precision_diag[start:start + n_params_layer].mean().item())
+                start += n_params_layer
+            prior_precision = torch.tensor(prior_precision, device=la._device)
+        else:
+            raise ValueError("Invalid prior structure for kron: must be scalar or layerwise.")
+
+        # Calcule a verossimilhança marginal negativa
+        neg_marglik = -la.log_marginal_likelihood(prior_precision, log_sigma.exp())
         neg_marglik.backward()
         sigma_optimizer.step()
+
         if (epoch + 1) % 10 == 0 or epoch == 0:
             print(f"Epoch {epoch+1}/{sigma_n_epochs}, Negative Marginal Likelihood: {neg_marglik.item():.4f}, sigma_noise: {log_sigma.exp().item():.4f}")
 
     la.sigma_noise = log_sigma.exp().detach()
     print(f"Valor final do sigma_noise para '{prior_structure}': {la.sigma_noise.item():.4f}")
     return la.sigma_noise.item()
+
+
 
 # Função principal para automatizar a otimização e visualização
 def run_prior_optimization(prior_structure):
@@ -206,7 +230,7 @@ def automate_prior_optimization(prior_structures):
         perform_predictions_and_plot(la, X_test, structure, save=True)
 
 # Definição das estruturas de precisão a priori suportadas
-prior_structures = ["scalar", "layerwise", "diag"]
+prior_structures = ["scalar", "layerwise"]
 
 # Executar a automatização para as estruturas definidas
 automate_prior_optimization(prior_structures)
